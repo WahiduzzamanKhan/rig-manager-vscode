@@ -28,11 +28,6 @@
         "icon": "$(versions)"
       },
       {
-        "command": "rig-manager.listVersions",
-        "title": "Rig: List Installed R Versions",
-        "icon": "$(list-ordered)"
-      },
-      {
         "command": "rig-manager.refresh",
         "title": "Rig: Refresh R Version Status",
         "icon": "$(sync)"

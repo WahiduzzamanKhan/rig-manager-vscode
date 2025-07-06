@@ -75,42 +75,6 @@ function activate(context) {
     });
     context.subscriptions.push(switchVersionDisposable);
 
-    // The command to list installed R versions
-    let listVersionsDisposable = vscode.commands.registerCommand('rig-manager.listVersions', function () {
-        // Execute 'rig list --json' and show the formatted output
-        exec('rig list --json', (error, stdout, stderr) => {
-            if (error) {
-                vscode.window.showErrorMessage(`Error executing rig: ${stderr}`);
-                return;
-            }
-            
-            try {
-                 // Parse the JSON output from rig
-                const versionsData = JSON.parse(stdout);
-
-                if (!versionsData || versionsData.length === 0) {
-                    vscode.window.showInformationMessage('No R versions found. Please install one using "rig add".');
-                    return;
-                }
-
-                // Format the JSON data into a human-readable string
-                const formattedList = versionsData.map(r => {
-                    const isDefault = r.default ? '*' : ' ';
-                    const aliases = r.aliases.length > 0 ? `(${r.aliases.join(', ')})` : '';
-                    return `${isDefault} ${r.name} ${aliases} - version ${r.version}`;
-                }).join('\n');
-
-
-                // Show the output in an information message.
-                // Using a modal so the user has to acknowledge it.
-                vscode.window.showInformationMessage(`Installed R Versions:\n${formattedList}`, { modal: true });
-            } catch (e) {
-                 vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}`);
-            }
-        });
-    });
-    context.subscriptions.push(listVersionsDisposable);
-
     // Add a command to refresh the status bar
     let refreshDisposable = vscode.commands.registerCommand('rig-manager.refresh', () => {
         updateStatusBar();
