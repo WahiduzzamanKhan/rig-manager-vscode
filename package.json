@@ -1,0 +1,39 @@
+{
+  "name": "rig-manager",
+  "displayName": "Rig Manager",
+  "description": "Manager your R versions with rig directly from VS code.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "rig-manager.switchVersion",
+        "title": "Rig: Switch R Version"
+      },
+      {
+        "command": "rig-manager.listVersions",
+        "title": "Rig: List Installed R Versions"
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.101.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "eslint": "^9.25.1",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
