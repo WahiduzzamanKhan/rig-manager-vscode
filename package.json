@@ -10,9 +10,14 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:rig-manager.switchVersion",
-    "onCommand:rig-manager.listVersions",
-    "onCommand:rig-manager.refresh"
+    "onLanguage:r",
+    "onLanguage:rmd",
+    "workspaceContains:**/*.R",
+    "workspaceContains:**/*.r",
+    "workspaceContains:**/*.Rmd",
+    "workspaceContains:**/*.rmd",
+    "workspaceContains:**/.Rprofile",
+    "workspaceContains:**/remv.lock"
   ],
   "main": "./extension.js",
   "contributes": {
