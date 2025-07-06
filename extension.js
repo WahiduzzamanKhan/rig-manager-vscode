@@ -6,6 +6,8 @@ const { exec } = require('child_process');
 
 // Declare a global variable for the StatusBarItem
 let rStatusBarItem;
+// Define a constant for the R terminal name
+const R_CONSOLE_NAME = 'R Console';
 
 /**
  * This method is called when your extension is activated.
@@ -62,6 +64,7 @@ function activate(context) {
                             vscode.window.showInformationMessage(`Switched default R version to: ${selectedVersionName}`);
                             // After switching, update the status bar
                             updateStatusBar();
+                            launchRConsole(true); // force a new console with the new version
                         });
                     }
                 });
@@ -70,7 +73,6 @@ function activate(context) {
             }
         });
     });
-
     context.subscriptions.push(switchVersionDisposable);
 
     // The command to list installed R versions
@@ -102,24 +104,66 @@ function activate(context) {
                 // Show the output in an information message.
                 // Using a modal so the user has to acknowledge it.
                 vscode.window.showInformationMessage(`Installed R Versions:\n${formattedList}`, { modal: true });
-
             } catch (e) {
                  vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}`);
             }
         });
     });
-
     context.subscriptions.push(listVersionsDisposable);
 
     // Add a command to refresh the status bar
     let refreshDisposable = vscode.commands.registerCommand('rig-manager.refresh', () => {
         updateStatusBar();
-        vscode.window.showInformationMessage('R version status refreshed.');
+        launchRConsole(true); // Also restart the console on refresh
+        vscode.window.showInformationMessage('R version status refreshed and console restarted.');
     });
     context.subscriptions.push(refreshDisposable);
 
-    // Update status bar on activation
+    // Update status bar and launch console on activation
     updateStatusBar();
+    launchRConsole();
+}
+
+/**
+ * Launches an R console in the terminal, using the default R version from rig.
+ * @param {boolean} forceNew - If true, disposes of any existing R console and creates a new one.
+ */
+function launchRConsole(forceNew = false) {
+    const existingTerminal = vscode.window.terminals.find(t => t.name === R_CONSOLE_NAME);
+
+    // If the terminal already exists and we're not forcing a new one, do nothing.
+    if (existingTerminal && !forceNew) {
+        return;
+    }
+
+    // If we are forcing a new terminal, dispose of the old one first.
+    if (existingTerminal && forceNew) {
+        existingTerminal.dispose();
+    }
+
+    // Find the default R binary and launch it
+    exec('rig list --json', (error, stdout, stderr) => {
+        if (error) {
+            vscode.window.showErrorMessage(`Could not launch R console. Error executing rig: ${stderr}`);
+            return;
+        }
+        try {
+            const versionsData = JSON.parse(stdout);
+            const defaultVersion = versionsData.find(r => r.default === true);
+
+            if (defaultVersion && defaultVersion.binary) {
+                const rTerminal = vscode.window.createTerminal({
+                    name: R_CONSOLE_NAME,
+                    shellPath: defaultVersion.binary,
+                });
+                rTerminal.show();
+            } else {
+                vscode.window.showWarningMessage('No default R version found. Cannot launch R console.');
+            }
+        } catch (e) {
+            vscode.window.showErrorMessage(`Failed to parse rig output for R console: ${e.message}`);
+        }
+    });
 }
 
 /**
