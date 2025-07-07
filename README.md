@@ -1,65 +1,49 @@
-# rig-manager README
+# Rig Manager for Visual Studio Code
 
-This is the README for your extension "rig-manager". After writing up a brief description, we recommend including the following sections.
+An extension to seamlessly manage your R versions with the [rig](https://github.com/r-lib/rig) R installation manager, directly from within VS Code.
+
+This extension activates automatically in R projects, providing an integrated experience for switching R versions and working with the corresponding R console.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+### Persistent Status Bar Item
+See the current default R version at a glance in the Status Bar as soon as you open an R project.
+![Status Bar](screenshots/status_bar.png)
 
-For example if there is an image subfolder under your extension project workspace:
+### Quick Version Switching
+Click the Status Bar item to quickly switch between your installed R versions.
+![Switch R Version](screenshots/quick_version_switch.gif)
 
-\!\[feature X\]\(images/feature-x.png\)
+### Automatic R Console
+An R console corresponding to your default `rig` version is automatically launched when the extension activates. The R console is also automatically restarted with the correct version when you switch, ensuring your environment is always in sync.
+![Launch R Console](screenshots/auto_launch_r_console.gif)
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+### Command Palette Integration
+Access all features through the Command Palette:
+  * `Rig: Switch R Version`
+  * `Rig: Refresh R Version Status`
 
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+![Command Palette](screenshots/command_palette_integration.gif)
 
 ---
 
-## Working with Markdown
+## Requirements
 
-You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
+You must have `rig` installed and available in your system's `PATH`. You can find installation instructions on the [official rig repository](https://github.com/r-lib/rig).
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets
+## Extension Settings
 
-## For more information
+This extension does not currently contribute any settings to VS Code.
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+## Known Issues
 
-**Enjoy!**
+* This is an early version of the extension. Please report any bugs or feature requests on the [GitHub repository issues page](https://github.com/WahiduzzamanKhan/rig-manager-vscode/issues).
+
+## Release Notes
+
+### 0.1.0
+
+- Quickly switch R version.
+- Show up in status bar.
+- Auto activate based on the opened folder/file.
+- Auto launch R console.
