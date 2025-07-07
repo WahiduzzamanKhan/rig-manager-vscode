@@ -134,6 +134,12 @@ function launchRConsole(forceNew = false) {
  * Updates the status bar item with the current default R version.
  */
 function updateStatusBar() {
+    const config = vscode.workspace.getConfiguration('rig-manager');
+    if (!config.get('statusBar.visible')) {
+        rStatusBarItem.hide(); // Hide and exit if desabled by the user
+        return;
+    }
+
     exec('rig list --json', (error, stdout, stderr) => {
         if (error) {
             // If rig command fails, hide the status bar item

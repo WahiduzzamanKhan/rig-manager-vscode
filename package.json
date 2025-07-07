@@ -32,6 +32,18 @@
         "title": "Rig: Refresh R Version Status",
         "icon": "$(sync)"
       }
+    ],
+    "configuration":[
+      {
+        "title": "Rig Manager",
+        "properties": {
+          "rig-manager.statusBar.visible": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show up in the Status Bar."
+          }
+        }
+      }
     ]
   },
   "scripts": {
