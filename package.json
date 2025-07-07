@@ -41,6 +41,11 @@
             "type": "boolean",
             "default": true,
             "description": "Show up in the Status Bar."
+          },
+          "rig-manager.rConsole.autoLaunch": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically launch an R console when the extension activates."
           }
         }
       }
