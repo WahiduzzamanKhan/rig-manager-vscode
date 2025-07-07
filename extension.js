@@ -93,6 +93,11 @@ function activate(context) {
  * @param {boolean} forceNew - If true, disposes of any existing R console and creates a new one.
  */
 function launchRConsole(forceNew = false) {
+    const config = vscode.workspace.getConfiguration('rig-manager');
+    if (!config.get('rConsole.autoLaunch')) {
+        return; // Exit if auto-launch is disabled by the user
+    }
+    
     const existingTerminal = vscode.window.terminals.find(t => t.name === R_CONSOLE_NAME);
 
     // If the terminal already exists and we're not forcing a new one, do nothing.
