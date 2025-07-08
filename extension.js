@@ -6,8 +6,6 @@ const { exec } = require('child_process');
 
 // Declare a global variable for the StatusBarItem
 let rStatusBarItem;
-// Define a constant for the R terminal name
-const R_CONSOLE_NAME = 'R Console';
 
 /**
  * This method is called when your extension is activated.
@@ -89,7 +87,10 @@ function activate(context) {
 }
 
 /**
- * Launches an R console in the terminal, using the default R version from rig.
+ * Launches an R console in the terminal.
+ * It checks if the 'REditorSupport.r' extension is installed.
+ * If yes, it uses that extension to launch the R console.
+ * If no, it launches a basic R console using the default version from rig.
  * @param {boolean} forceNew - If true, disposes of any existing R console and creates a new one.
  */
 function launchRConsole(forceNew = false) {
@@ -97,42 +98,55 @@ function launchRConsole(forceNew = false) {
     if (!config.get('rConsole.autoLaunch')) {
         return; // Exit if auto-launch is disabled by the user
     }
-    
-    const existingTerminal = vscode.window.terminals.find(t => t.name === R_CONSOLE_NAME);
 
-    // If the terminal already exists and we're not forcing a new one, do nothing.
-    if (existingTerminal && !forceNew) {
-        return;
-    }
+    // Check if the REditorSupport.r extension is installed
+    const rEditorSupport = vscode.extensions.getExtension('REditorSupport.r');
 
-    // If we are forcing a new terminal, dispose of the old one first.
-    if (existingTerminal && forceNew) {
-        existingTerminal.dispose();
-    }
+    if (rEditorSupport) {
+        // If the R Editor Support extension is found, use its command to create an R terminal.
+        // This provides a richer, more integrated experience.
+        console.log('REditorSupport.r found. Handing off R terminal creation.');
+        vscode.commands.executeCommand('r.createRTerm');
+    } else {
+        // If the R Editor Support extension is not found, fall back to the original behavior.
+        console.log('REditorSupport.r not found. Launching a basic R console.');
+        const R_CONSOLE_NAME = 'R Console';
+        const existingTerminal = vscode.window.terminals.find(t => t.name === R_CONSOLE_NAME);
 
-    // Find the default R binary and launch it
-    exec('rig list --json', (error, stdout, stderr) => {
-        if (error) {
-            vscode.window.showErrorMessage(`Could not launch R console. Error executing rig: ${stderr}`);
+        // If the terminal already exists and we're not forcing a new one, do nothing.
+        if (existingTerminal && !forceNew) {
             return;
         }
-        try {
-            const versionsData = JSON.parse(stdout);
-            const defaultVersion = versionsData.find(r => r.default === true);
 
-            if (defaultVersion && defaultVersion.binary) {
-                const rTerminal = vscode.window.createTerminal({
-                    name: R_CONSOLE_NAME,
-                    shellPath: defaultVersion.binary,
-                });
-                rTerminal.show();
-            } else {
-                vscode.window.showWarningMessage('No default R version found. Cannot launch R console.');
-            }
-        } catch (e) {
-            vscode.window.showErrorMessage(`Failed to parse rig output for R console: ${e.message}`);
+        // If we are forcing a new terminal, dispose of the old one first.
+        if (existingTerminal && forceNew) {
+            existingTerminal.dispose();
         }
-    });
+
+        // Find the default R binary and launch it
+        exec('rig list --json', (error, stdout, stderr) => {
+            if (error) {
+                vscode.window.showErrorMessage(`Could not launch R console. Error executing rig: ${stderr}`);
+                return;
+            }
+            try {
+                const versionsData = JSON.parse(stdout);
+                const defaultVersion = versionsData.find(r => r.default === true);
+
+                if (defaultVersion && defaultVersion.binary) {
+                    const rTerminal = vscode.window.createTerminal({
+                        name: R_CONSOLE_NAME,
+                        shellPath: defaultVersion.binary,
+                    });
+                    rTerminal.show();
+                } else {
+                    vscode.window.showWarningMessage('No default R version found. Cannot launch R console.');
+                }
+            } catch (e) {
+                vscode.window.showErrorMessage(`Failed to parse rig output for R console: ${e.message}`);
+            }
+        });
+    }
 }
 
 /**
