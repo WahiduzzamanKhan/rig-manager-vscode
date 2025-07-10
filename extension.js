@@ -360,12 +360,34 @@ async function uninstallWithProgress(version) {
  * It checks if the 'REditorSupport.r' extension is installed.
  * If yes, it uses that extension to launch the R console.
  * If no, it launches a basic R console using the default version from rig.
- * @param {boolean} forceNew - If true, disposes of any existing R console and creates a new one.
+ * @param {boolean} forceNew - If true, disposes of existing 'R Console' and 'R Interactive' terminals and creates a new one.
  */
 function launchRConsole(forceNew = false) {
     const config = vscode.workspace.getConfiguration('rig-manager');
     if (!config.get('rConsole.autoLaunch')) {
         return; // Exit if auto-launch is disabled by the user
+    }
+
+    // If we're forcing a new console, dispose of existing R-related terminals first
+    if (forceNew) {
+        // Only target the specific terminal names we create
+        const rTerminalNames = [
+            'R Console',           // Our extension's terminal name
+            'R Interactive',       // REditorSupport extension's terminal name
+        ];
+        
+        // Find and dispose R terminals by exact name match
+        const existingRTerminals = vscode.window.terminals.filter(t => 
+            rTerminalNames.includes(t.name)
+        );
+        
+        if (existingRTerminals.length > 0) {
+            console.log(`Disposing ${existingRTerminals.length} existing R terminal(s)`);
+            existingRTerminals.forEach(terminal => {
+                console.log(`Disposing terminal: ${terminal.name}`);
+                terminal.dispose();
+            });
+        }
     }
 
     // Check if the REditorSupport.r extension is installed
@@ -374,7 +396,7 @@ function launchRConsole(forceNew = false) {
     if (rEditorSupport) {
         // If the R Editor Support extension is found, use its command to create an R terminal.
         // This provides a richer, more integrated experience.
-        console.log('REditorSupport.r found. Handing off R terminal creation.');
+        console.log('REditorSupport.r found. Creating R terminal.');
         vscode.commands.executeCommand('r.createRTerm');
     } else {
         // If the R Editor Support extension is not found, fall back to the original behavior.
@@ -387,7 +409,7 @@ function launchRConsole(forceNew = false) {
             return;
         }
 
-        // If we are forcing a new terminal, dispose of the old one first.
+        // If we are forcing a new terminal, dispose of the old one first (this is redundant now but kept for clarity)
         if (existingTerminal && forceNew) {
             existingTerminal.dispose();
         }
