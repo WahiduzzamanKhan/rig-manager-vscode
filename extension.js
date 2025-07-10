@@ -3,193 +3,195 @@
 const vscode = require('vscode');
 // The 'child_process' module allows us to execute shell commands
 const { exec, spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 // Declare a global variable for the StatusBarItem
 let rStatusBarItem;
+
+/**
+ * Utility function to execute rig commands and parse JSON output
+ * @param {string} command - The rig command to execute
+ * @param {string} errorMessage - Custom error message for failures
+ * @returns {Promise<any>} - Parsed JSON result
+ */
+function executeRigCommand(command, errorMessage = 'Error executing rig command') {
+    return new Promise((resolve, reject) => {
+        exec(command, (error, stdout, stderr) => {
+            if (error) {
+                vscode.window.showErrorMessage(`${errorMessage}: ${stderr}`);
+                reject(new Error(stderr));
+                return;
+            }
+
+            try {
+                const result = JSON.parse(stdout);
+                resolve(result);
+            } catch (e) {
+                vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}`);
+                reject(e);
+            }
+        });
+    });
+}
+
+/**
+ * Creates quick pick items for version selection
+ * @param {Array} versions - Array of version objects
+ * @param {string} type - Type of selection ('switch', 'install', 'remove')
+ * @returns {Array} - Array of quick pick items
+ */
+function createVersionQuickPickItems(versions, type) {
+    switch (type) {
+        case 'install':
+            return versions.map(r => ({
+                label: r.name,
+                description: `(${r.type})`,
+                detail: `Released on: ${new Date(r.date).toLocaleDateString()}`
+            }));
+        case 'remove':
+            return versions.map(r => ({
+                label: r.name,
+                description: `(${r.version})`,
+                detail: `Path: ${r.path}`
+            }));
+        case 'switch':
+        default:
+            return versions.map(r => ({
+                label: r.name,
+                description: r.default ? '(default)' : '',
+                detail: `Version: ${r.version}, Path: ${r.path}`
+            }));
+    }
+}
+
+/**
+ * Shows a version selection quick pick
+ * @param {Array} versions - Array of version objects
+ * @param {string} placeholder - Placeholder text for the quick pick
+ * @param {string} type - Type of selection ('switch', 'install', 'remove')
+ * @returns {Promise<any>} - Selected item or undefined
+ */
+async function showVersionQuickPick(versions, placeholder, type) {
+    if (!versions || versions.length === 0) {
+        const messages = {
+            'switch': 'No R versions found. Please install one using "rig add".',
+            'install': 'No available R versions found to install.',
+            'remove': 'No R versions found to uninstall.'
+        };
+        vscode.window.showInformationMessage(messages[type] || messages['switch']);
+        return undefined;
+    }
+
+    const quickPickItems = createVersionQuickPickItems(versions, type);
+    return await vscode.window.showQuickPick(quickPickItems, {
+        placeHolder: placeholder,
+        matchOnDetail: true
+    });
+}
+
+/**
+ * Switches to a specific R version
+ * @param {string} versionName - Name of the version to switch to
+ * @returns {Promise<void>}
+ */
+async function switchToVersion(versionName) {
+    return new Promise((resolve, reject) => {
+        exec(`rig default ${versionName}`, (error, stdout, stderr) => {
+            if (error) {
+                vscode.window.showErrorMessage(`Failed to switch to ${versionName}: ${stderr}`);
+                reject(new Error(stderr));
+                return;
+            }
+            vscode.window.showInformationMessage(`Switched default R version to: ${versionName}`);
+            updateStatusBar();
+            launchRConsole(true);
+            resolve();
+        });
+    });
+}
+
+/**
+ * Generic progress handler for sudo operations
+ * @param {string} operation - Operation name ('install' or 'uninstall')
+ * @param {string} version - Version to operate on
+ * @param {string} rigCommand - The rig command to execute ('add' or 'rm')
+ * @returns {Promise<void>}
+ */
+async function handleSudoOperation(operation, version, rigCommand) {
+    const password = await vscode.window.showInputBox({
+        prompt: `Sudo password required to ${operation} R ${version}`,
+        password: true,
+        ignoreFocusOut: true
+    });
+
+    if (password === undefined) {
+        vscode.window.showWarningMessage(`${operation.charAt(0).toUpperCase() + operation.slice(1)} of R ${version} cancelled.`);
+        return;
+    }
+
+    return vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: `${operation.charAt(0).toUpperCase() + operation.slice(1)}ing R version: ${version}`,
+        cancellable: true
+    }, (progress, token) => {
+        const child = spawn('sudo', ['-S', 'rig', rigCommand, version]);
+
+        return new Promise((resolve, reject) => {
+            token.onCancellationRequested(() => {
+                child.kill();
+                vscode.window.showWarningMessage(`${operation.charAt(0).toUpperCase() + operation.slice(1)} of R ${version} cancelled.`);
+                reject();
+            });
+
+            child.stdin.write(password + '\n');
+            child.stdin.end();
+
+            child.stdout.on('data', data => {
+                const message = data.toString().trim().split('\n').pop();
+                progress.report({ message });
+            });
+
+            child.stderr.on('data', data => {
+                console.error(`stderr: ${data}`);
+            });
+
+            child.on('close', code => {
+                if (code === 0) {
+                    vscode.window.showInformationMessage(`Successfully ${operation}ed R version: ${version}`);
+                    updateStatusBar();
+                    resolve();
+                } else {
+                    const errorMsg = code === 1 
+                        ? `Failed to ${operation} R ${version}. Incorrect password or permission error.`
+                        : `Failed to ${operation} R version ${version}. See extension host logs for details. Exit code: ${code}`;
+                    vscode.window.showErrorMessage(errorMsg);
+                    reject();
+                }
+            });
+
+            child.on('error', err => {
+                vscode.window.showErrorMessage(`Failed to start ${operation} process: ${err.message}`);
+                reject(err);
+            });
+        });
+    });
+}
 
 /**
  * This method is called when your extension is activated.
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
-
     console.log('"rig-manager" is now active!');
 
-    // Create the status bar item.
-    // We align it to the left and give it a priority to place it to the left of the language indicator.
+    // Create the status bar item
     rStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     rStatusBarItem.command = 'rig-manager.switchVersion';
     context.subscriptions.push(rStatusBarItem);
 
-    // The command to switch R versions
-    let switchVersionDisposable = vscode.commands.registerCommand('rig-manager.switchVersion', function () {
-		// Execute the 'rig list --json' command to get all installed R versions in JSON format
-        exec('rig list --json', (error, stdout, stderr) => {
-            if (error) {
-                vscode.window.showErrorMessage(`Error executing rig: ${stderr}`);
-                return;
-            }
-
-            try {
-				// Parse the JSON output from rig
-                const versionsData = JSON.parse(stdout);
-				
-                if (!versionsData || versionsData.length === 0) {
-                    vscode.window.showInformationMessage('No R versions found. Please install one using "rig add".');
-                    return;
-                }
-                
-                // Create a list of items for the quick pick dropdown
-				const quickPickItems = versionsData.map(r => ({
-                    label: r.name,
-                    description: r.default ? '(default)' : '',
-                    detail: `Version: ${r.version}, Path: ${r.path}`
-                }));
-
-				// Show a quick pick dropdown with the list of R versions
-                vscode.window.showQuickPick(quickPickItems, {
-                    placeHolder: 'Select an R version to switch to',
-                    matchOnDetail: true
-                }).then(selectedItem => {
-                    if (selectedItem) {
-						// If the user selected a version, use its name to set the default
-                        const selectedVersionName = selectedItem.label;
-                        exec(`rig default ${selectedVersionName}`, (error, stdout, stderr) => {
-                            if (error) {
-                                vscode.window.showErrorMessage(`Failed to switch to ${selectedVersionName}: ${stderr}`);
-                                return;
-                            }
-                            vscode.window.showInformationMessage(`Switched default R version to: ${selectedVersionName}`);
-                            // After switching, update the status bar
-                            updateStatusBar();
-                            launchRConsole(true); // force a new console with the new version
-                        });
-                    }
-                });
-            } catch (e) {
-                vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}`);
-            }
-        });
-    });
-    context.subscriptions.push(switchVersionDisposable);
-
-    // The command to install R versoin
-    let installVersionDisposable = vscode.commands.registerCommand('rig-manager.installVersion', () => {
-        vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: "Fetching available R versions...",
-            cancellable: false
-        }, async () => {
-            // Get available versions from rig in json format
-            exec('rig available --json', (error, stdout, stderr) => {
-                if (error) {
-                    vscode.window.showErrorMessage(`Could not fetch available R versions: ${stderr}`);
-                    return;
-                }
-
-                try {
-                    // Parse the JSON output from rig
-                    const availableVersions = JSON.parse(stdout);
-                    if (!availableVersions || availableVersions.length === 0) {
-                        vscode.window.showInformationMessage('No available R versions found to install.');
-                        return;
-                    }
-
-                    // Create a list of items for the quick pick dropdown
-                    const quickPickItems = availableVersions.map(r => ({
-                        label: r.name,
-                        description: `(${r.type})`,
-                        detail: `Released on: ${new Date(r.date).toLocaleDateString()}`
-                    }));
-
-                    // Show Quick Pick to the user
-                    vscode.window.showQuickPick(quickPickItems, {
-                        placeHolder: 'Select an R version to install',
-                        matchOnDetail: true
-                    }).then(selectedItem => {
-                        if (selectedItem) {
-                            // Install the selected version (using its label) with progress
-                            installWithProgress(selectedItem.label);
-                        }
-                    });
-                } catch (e) {
-                    vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}`);
-                }
-            });
-        });
-    });
-    context.subscriptions.push(installVersionDisposable);
-
-    // The command to remove/uninstall R version
-    let removeVersionDisposable = vscode.commands.registerCommand('rig-manager.removeVersion', () => {
-        // Get installed versions from rig in json format
-        exec('rig list --json', (error, stdout, stderr) => {
-            if (error) {
-                vscode.window.showErrorMessage(`Could not fetch installed R versions: ${stderr}`);
-                return;
-            }
-
-            try {
-                // Parse the JSON output from rig
-                const installedVersions = JSON.parse(stdout);
-                if (!installedVersions || installedVersions.length === 0) {
-                    vscode.window.showInformationMessage('No R versions found to uninstall.');
-                    return;
-                }
-
-                // Filter out the default version to prevent accidental removal
-                const removableVersions = installedVersions.filter(r => !r.default);
-                
-                if (removableVersions.length === 0) {
-                    vscode.window.showWarningMessage('Cannot uninstall the default R version. Please set a different version as default first.');
-                    return;
-                }
-
-                // Create a list of items for the quick pick dropdown
-                const quickPickItems = removableVersions.map(r => ({
-                    label: r.name,
-                    description: `(${r.version})`,
-                    detail: `Path: ${r.path}`
-                }));
-
-                // Show Quick Pick to the user
-                vscode.window.showQuickPick(quickPickItems, {
-                    placeHolder: 'Select an R version to uninstall',
-                    matchOnDetail: true
-                }).then(selectedItem => {
-                    if (selectedItem) {
-                        // Confirm before uninstalling
-                        vscode.window.showWarningMessage(
-                            `Are you sure you want to uninstall R version ${selectedItem.label}? This action cannot be undone.`,
-                            'Yes, Uninstall',
-                            'Cancel'
-                        ).then(choice => {
-                            if (choice === 'Yes, Uninstall') {
-                                uninstallWithProgress(selectedItem.label);
-                            }
-                        });
-                    }
-                });
-            } catch (e) {
-                vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}`);
-            }
-        });
-    });
-    context.subscriptions.push(removeVersionDisposable);
-
-    // Add a command to refresh the status bar
-    let refreshDisposable = vscode.commands.registerCommand('rig-manager.refresh', () => {
-        updateStatusBar();
-        launchRConsole(true); // Also restart the console on refresh
-        vscode.window.showInformationMessage('R version status refreshed and console restarted.');
-    });
-    context.subscriptions.push(refreshDisposable);
-
-    // Add a command to check renv requirements
-    let checkRenvDisposable = vscode.commands.registerCommand('rig-manager.checkRenvRequirements', () => {
-        checkRenvRequirements(true); // Force check even if auto-check is disabled
-    });
-    context.subscriptions.push(checkRenvDisposable);
+    // Register all commands
+    registerCommands(context);
 
     // Update status bar and launch console on activation
     updateStatusBar();
@@ -200,183 +202,112 @@ function activate(context) {
         checkRenvRequirements().catch(error => {
             console.error('Error checking renv requirements:', error);
         });
-    }, 1000); // Delay to ensure workspace is fully loaded
+    }, 1000);
 }
 
 /**
- * Installs an R version using spawn to handle long-running processes that may require sudo.
- * It prompts the user for their password and pipes it to the sudo command.
- * @param {string} version - The version of R to install (e.g., "4.3.1", "devel").
+ * Registers all extension commands
+ * @param {vscode.ExtensionContext} context
  */
-async function installWithProgress(version) {
-    // Prompt the user for their password to use with sudo
-    const password = await vscode.window.showInputBox({
-        prompt: `Sudo password required to install R ${version}`,            password: true,
-        ignoreFocusOut: true // Keep prompt open even if it loses focus
+function registerCommands(context) {
+    // Switch R version command
+    const switchVersionDisposable = vscode.commands.registerCommand('rig-manager.switchVersion', async () => {
+        try {
+            const versionsData = await executeRigCommand('rig list --json', 'Error fetching installed R versions');
+            const selectedItem = await showVersionQuickPick(versionsData, 'Select an R version to switch to', 'switch');
+            
+            if (selectedItem) {
+                await switchToVersion(selectedItem.label);
+            }
+        } catch (error) {
+            // Error already handled in utility functions
+        }
     });
 
-    // If the user cancels the password prompt, do nothing.
-    if (password === undefined) {
-        vscode.window.showWarningMessage(`Installation of R ${version} cancelled.`);
-        return;
-    }
-
-    vscode.window.withProgress({
+    // Install R version command
+    const installVersionDisposable = vscode.commands.registerCommand('rig-manager.installVersion', () => {
+        vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: `Installing R version: ${version}`,
-            cancellable: true
-    }, (progress, token) => {
-        // The command is `sudo`, with `-S` to read the password from stdin.
-        // The arguments are the rest of the command.
-        const child = spawn('sudo', ['-S', 'rig', 'add', version]);
-
-        return new Promise((resolve, reject) => {
-            token.onCancellationRequested(() => {
-                // Sending SIGTERM to the sudo process. This might not kill child processes
-                // spawned by rig, but it's the safest approach without more complex logic.
-                child.kill();
-                vscode.window.showWarningMessage(`Installation of R ${version} cancelled.`);
-                reject();
-            });
-
-            // Write the password to the stdin of the sudo command, followed by a newline.
-            child.stdin.write(password + '\n');
-            child.stdin.end();
-
-            child.stdout.on('data', data => {
-                // Report progress from the command's output
-                const message = data.toString().trim().split('\n').pop();
-                progress.report({ message });
-            });
-
-            child.stderr.on('data', data => {
-                // Log stderr for debugging, but don't show it all to the user.
-                // Specific errors are handled in the 'close' event.
-                console.error(`stderr: ${data}`);
-            });
-
-            child.on('close', code => {
-                if (code === 0) {
-                    vscode.window.showInformationMessage(`Successfully installed R version: ${version}`);
-                    updateStatusBar();
-                    resolve();
-                } else {
-                    // If the exit code is 1, it's highly likely a password error with sudo.
-                    if (code === 1) {
-                        vscode.window.showErrorMessage(`Failed to install R ${version}. Incorrect password or permission error.`);
-                    } else {
-                        vscode.window.showErrorMessage(`Failed to install R version ${version}. See extension host logs for details. Exit code: ${code}`);
-                    }
-                    reject();
+            title: "Fetching available R versions...",
+            cancellable: false
+        }, async () => {
+            try {
+                const availableVersions = await executeRigCommand('rig available --json', 'Could not fetch available R versions');
+                const selectedItem = await showVersionQuickPick(availableVersions, 'Select an R version to install', 'install');
+                
+                if (selectedItem) {
+                    await handleSudoOperation('install', selectedItem.label, 'add');
                 }
-            });
-
-            child.on('error', err => {
-                vscode.window.showErrorMessage(`Failed to start installation process: ${err.message}`);
-                reject(err);
-            });
+            } catch (error) {
+                // Error already handled in utility functions
+            }
         });
     });
-}
 
-/**
- * Uninstalls an R version using spawn to handle long-running processes that may require sudo.
- * It prompts the user for their password and pipes it to the sudo command.
- * @param {string} version - The version of R to uninstall (e.g., "4.3.1", "devel").
- */
-async function uninstallWithProgress(version) {
-    // Prompt the user for their password to use with sudo
-    const password = await vscode.window.showInputBox({
-        prompt: `Sudo password required to uninstall R ${version}`,
-        password: true,
-        ignoreFocusOut: true // Keep prompt open even if it loses focus
-    });
+    // Remove R version command
+    const removeVersionDisposable = vscode.commands.registerCommand('rig-manager.removeVersion', async () => {
+        try {
+            const installedVersions = await executeRigCommand('rig list --json', 'Could not fetch installed R versions');
+            const removableVersions = installedVersions.filter(r => !r.default);
+            
+            if (removableVersions.length === 0) {
+                vscode.window.showWarningMessage('Cannot uninstall the default R version. Please set a different version as default first.');
+                return;
+            }
 
-    // If the user cancels the password prompt, do nothing.
-    if (password === undefined) {
-        vscode.window.showWarningMessage(`Uninstallation of R ${version} cancelled.`);
-        return;
-    }
-
-    vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: `Uninstalling R version: ${version}`,
-        cancellable: true
-    }, (progress, token) => {
-        // The command is `sudo`, with `-S` to read the password from stdin.
-        // The arguments are the rest of the command.
-        const child = spawn('sudo', ['-S', 'rig', 'rm', version]);
-
-        return new Promise((resolve, reject) => {
-            token.onCancellationRequested(() => {
-                // Sending SIGTERM to the sudo process.
-                child.kill();
-                vscode.window.showWarningMessage(`Uninstallation of R ${version} cancelled.`);
-                reject();
-            });
-
-            // Write the password to the stdin of the sudo command, followed by a newline.
-            child.stdin.write(password + '\n');
-            child.stdin.end();
-
-            child.stdout.on('data', data => {
-                // Report progress from the command's output
-                const message = data.toString().trim().split('\n').pop();
-                progress.report({ message });
-            });
-
-            child.stderr.on('data', data => {
-                // Log stderr for debugging, but don't show it all to the user.
-                // Specific errors are handled in the 'close' event.
-                console.error(`stderr: ${data}`);
-            });
-
-            child.on('close', code => {
-                if (code === 0) {
-                    vscode.window.showInformationMessage(`Successfully uninstalled R version: ${version}`);
-                    updateStatusBar();
-                    resolve();
-                } else {
-                    // If the exit code is 1, it's highly likely a password error with sudo.
-                    if (code === 1) {
-                        vscode.window.showErrorMessage(`Failed to uninstall R ${version}. Incorrect password or permission error.`);
-                    } else {
-                        vscode.window.showErrorMessage(`Failed to uninstall R version ${version}. See extension host logs for details. Exit code: ${code}`);
-                    }
-                    reject();
+            const selectedItem = await showVersionQuickPick(removableVersions, 'Select an R version to uninstall', 'remove');
+            
+            if (selectedItem) {
+                const choice = await vscode.window.showWarningMessage(
+                    `Are you sure you want to uninstall R version ${selectedItem.label}? This action cannot be undone.`,
+                    'Yes, Uninstall',
+                    'Cancel'
+                );
+                
+                if (choice === 'Yes, Uninstall') {
+                    await handleSudoOperation('uninstall', selectedItem.label, 'rm');
                 }
-            });
-
-            child.on('error', err => {
-                vscode.window.showErrorMessage(`Failed to start uninstallation process: ${err.message}`);
-                reject(err);
-            });
-        });
+            }
+        } catch (error) {
+            // Error already handled in utility functions
+        }
     });
+
+    // Refresh command
+    const refreshDisposable = vscode.commands.registerCommand('rig-manager.refresh', () => {
+        updateStatusBar();
+        launchRConsole(true);
+        vscode.window.showInformationMessage('R version status refreshed and console restarted.');
+    });
+
+    // Check renv requirements command
+    const checkRenvDisposable = vscode.commands.registerCommand('rig-manager.checkRenvRequirements', () => {
+        checkRenvRequirements(true);
+    });
+
+    // Add all disposables to context
+    context.subscriptions.push(
+        switchVersionDisposable,
+        installVersionDisposable,
+        removeVersionDisposable,
+        refreshDisposable,
+        checkRenvDisposable
+    );
 }
 
 /**
  * Launches an R console in the terminal.
- * It checks if the 'REditorSupport.r' extension is installed.
- * If yes, it uses that extension to launch the R console.
- * If no, it launches a basic R console using the default version from rig.
- * @param {boolean} forceNew - If true, disposes of existing 'R Console' and 'R Interactive' terminals and creates a new one.
+ * @param {boolean} forceNew - If true, disposes of existing R terminals and creates a new one.
  */
 function launchRConsole(forceNew = false) {
     const config = vscode.workspace.getConfiguration('rig-manager');
     if (!config.get('rConsole.autoLaunch')) {
-        return; // Exit if auto-launch is disabled by the user
+        return;
     }
 
-    // If we're forcing a new console, dispose of existing R-related terminals first
+    // Dispose of existing R terminals if forcing new
     if (forceNew) {
-        // Only target the specific terminal names we create
-        const rTerminalNames = [
-            'R Console',           // Our extension's terminal name
-            'R Interactive',       // REditorSupport extension's terminal name
-        ];
-        
-        // Find and dispose R terminals by exact name match
+        const rTerminalNames = ['R Console', 'R Interactive'];
         const existingRTerminals = vscode.window.terminals.filter(t => 
             rTerminalNames.includes(t.name)
         );
@@ -390,54 +321,51 @@ function launchRConsole(forceNew = false) {
         }
     }
 
-    // Check if the REditorSupport.r extension is installed
+    // Check if REditorSupport.r extension is installed
     const rEditorSupport = vscode.extensions.getExtension('REditorSupport.r');
 
     if (rEditorSupport) {
-        // If the R Editor Support extension is found, use its command to create an R terminal.
-        // This provides a richer, more integrated experience.
         console.log('REditorSupport.r found. Creating R terminal.');
         vscode.commands.executeCommand('r.createRTerm');
     } else {
-        // If the R Editor Support extension is not found, fall back to the original behavior.
         console.log('REditorSupport.r not found. Launching a basic R console.');
-        const R_CONSOLE_NAME = 'R Console';
-        const existingTerminal = vscode.window.terminals.find(t => t.name === R_CONSOLE_NAME);
-
-        // If the terminal already exists and we're not forcing a new one, do nothing.
-        if (existingTerminal && !forceNew) {
-            return;
-        }
-
-        // If we are forcing a new terminal, dispose of the old one first (this is redundant now but kept for clarity)
-        if (existingTerminal && forceNew) {
-            existingTerminal.dispose();
-        }
-
-        // Find the default R binary and launch it
-        exec('rig list --json', (error, stdout, stderr) => {
-            if (error) {
-                vscode.window.showErrorMessage(`Could not launch R console. Error executing rig: ${stderr}`);
-                return;
-            }
-            try {
-                const versionsData = JSON.parse(stdout);
-                const defaultVersion = versionsData.find(r => r.default === true);
-
-                if (defaultVersion && defaultVersion.binary) {
-                    const rTerminal = vscode.window.createTerminal({
-                        name: R_CONSOLE_NAME,
-                        shellPath: defaultVersion.binary,
-                    });
-                    rTerminal.show();
-                } else {
-                    vscode.window.showWarningMessage('No default R version found. Cannot launch R console.');
-                }
-            } catch (e) {
-                vscode.window.showErrorMessage(`Failed to parse rig output for R console: ${e.message}`);
-            }
-        });
+        launchBasicRConsole(forceNew);
     }
+}
+
+/**
+ * Launches a basic R console when REditorSupport is not available
+ * @param {boolean} forceNew - Whether to force creation of new terminal
+ */
+function launchBasicRConsole(forceNew) {
+    const R_CONSOLE_NAME = 'R Console';
+    const existingTerminal = vscode.window.terminals.find(t => t.name === R_CONSOLE_NAME);
+
+    if (existingTerminal && !forceNew) {
+        return;
+    }
+
+    if (existingTerminal && forceNew) {
+        existingTerminal.dispose();
+    }
+
+    executeRigCommand('rig list --json', 'Could not launch R console')
+        .then(versionsData => {
+            const defaultVersion = versionsData.find(r => r.default === true);
+
+            if (defaultVersion && defaultVersion.binary) {
+                const rTerminal = vscode.window.createTerminal({
+                    name: R_CONSOLE_NAME,
+                    shellPath: defaultVersion.binary,
+                });
+                rTerminal.show();
+            } else {
+                vscode.window.showWarningMessage('No default R version found. Cannot launch R console.');
+            }
+        })
+        .catch(error => {
+            // Error already handled in executeRigCommand
+        });
 }
 
 /**
@@ -446,23 +374,15 @@ function launchRConsole(forceNew = false) {
 function updateStatusBar() {
     const config = vscode.workspace.getConfiguration('rig-manager');
     if (!config.get('statusBar.visible')) {
-        rStatusBarItem.hide(); // Hide and exit if desabled by the user
+        rStatusBarItem.hide();
         return;
     }
 
-    exec('rig list --json', (error, stdout) => {
-        if (error) {
-            // If rig command fails, hide the status bar item
-            rStatusBarItem.hide();
-            return;
-        }
-
-        try {
-            const versionsData = JSON.parse(stdout);
+    executeRigCommand('rig list --json', 'Error fetching R versions for status bar')
+        .then(versionsData => {
             const defaultVersion = versionsData.find(r => r.default === true);
 
             if (defaultVersion) {
-                // Set the text to show the R version and a special icon
                 rStatusBarItem.text = `$(versions) R: ${defaultVersion.version}`;
                 rStatusBarItem.tooltip = `Default R Version: ${defaultVersion.name} (${defaultVersion.version})`;
                 rStatusBarItem.show();
@@ -471,54 +391,43 @@ function updateStatusBar() {
                 rStatusBarItem.tooltip = 'No default R version selected. Click to choose one.';
                 rStatusBarItem.show();
             }
-        } catch (e) {
+        })
+        .catch(error => {
             rStatusBarItem.hide();
-            console.error(`Failed to parse rig output for status bar: ${e.message}`);
-        }
-    });
+        });
 }
 
 /**
  * Checks if the current workspace has an renv.lock file and suggests switching to the required R version.
- * If the required version is not installed, it suggests installing it.
  * @param {boolean} forceCheck - If true, bypasses the configuration setting and always checks
  */
 async function checkRenvRequirements(forceCheck = false) {
-    // Check configuration setting unless this is a forced check
     if (!forceCheck) {
         const config = vscode.workspace.getConfiguration('rig-manager');
         if (!config.get('renv.autoCheck')) {
-            return; // Exit if auto-check is disabled by the user
+            return;
         }
     }
 
-    // Check if there's an active workspace
     if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
         return;
     }
 
-    const fs = require('fs');
-    const path = require('path');
-
-    // Look for renv.lock file in the workspace root
     const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
     const renvLockPath = path.join(workspaceRoot, 'renv.lock');
 
     try {
-        // Check if renv.lock exists
         if (!fs.existsSync(renvLockPath)) {
             if (forceCheck) {
                 vscode.window.showInformationMessage('No renv.lock file found in the current workspace.');
             }
-            return; // No renv.lock file found, nothing to do
+            return;
         }
 
-        // Read and parse renv.lock file
         const renvLockContent = fs.readFileSync(renvLockPath, 'utf8');
         const renvData = JSON.parse(renvLockContent);
-
-        // Extract R version from renv.lock
         const requiredRVersion = renvData.R?.Version;
+        
         if (!requiredRVersion) {
             console.log('No R version specified in renv.lock');
             return;
@@ -526,86 +435,68 @@ async function checkRenvRequirements(forceCheck = false) {
 
         console.log(`Found renv.lock requiring R version: ${requiredRVersion}`);
 
-        // Get currently installed R versions
-        exec('rig list --json', (error, stdout, stderr) => {
-            if (error) {
-                console.error(`Error checking installed R versions: ${stderr}`);
-                return;
-            }
+        const installedVersions = await executeRigCommand('rig list --json', 'Error checking installed R versions');
+        const currentDefault = installedVersions.find(r => r.default === true);
+        
+        if (currentDefault && currentDefault.version === requiredRVersion) {
+            console.log(`Already using required R version: ${requiredRVersion}`);
+            return;
+        }
 
-            try {
-                const installedVersions = JSON.parse(stdout);
-                const currentDefault = installedVersions.find(r => r.default === true);
-                
-                // Check if we're already using the required version
-                if (currentDefault && currentDefault.version === requiredRVersion) {
-                    console.log(`Already using required R version: ${requiredRVersion}`);
-                    return; // Already using the correct version
-                }
-
-                // Check if the required version is installed (try exact match first, then partial match)
-                let requiredVersionInstalled = installedVersions.find(r => r.version === requiredRVersion);
-                
-                // If no exact match, try to find a compatible version (e.g., 4.3.1 matches 4.3.0)
-                if (!requiredVersionInstalled) {
-                    const [major, minor] = requiredRVersion.split('.');
-                    requiredVersionInstalled = installedVersions.find(r => {
-                        const [installedMajor, installedMinor] = r.version.split('.');
-                        return installedMajor === major && installedMinor === minor;
-                    });
-                }
-
-                if (requiredVersionInstalled) {
-                    // Version is installed but not set as default
-                    const versionMessage = requiredVersionInstalled.version === requiredRVersion 
-                        ? `This project requires R version ${requiredRVersion} (found in renv.lock). Currently using ${currentDefault?.version || 'unknown'}. Would you like to switch?`
-                        : `This project requires R version ${requiredRVersion} (found in renv.lock). Found compatible version ${requiredVersionInstalled.version}. Currently using ${currentDefault?.version || 'unknown'}. Would you like to switch?`;
-                    
-                    vscode.window.showInformationMessage(
-                        versionMessage,
-                        'Switch to Required Version',
-                        'Not Now'
-                    ).then(choice => {
-                        if (choice === 'Switch to Required Version') {
-                            // Switch to the required version
-                            exec(`rig default ${requiredVersionInstalled.name}`, (error, stdout, stderr) => {
-                                if (error) {
-                                    vscode.window.showErrorMessage(`Failed to switch to R ${requiredVersionInstalled.version}: ${stderr}`);
-                                    return;
-                                }
-                                vscode.window.showInformationMessage(`Switched to R version ${requiredVersionInstalled.version} as required by renv.lock`);
-                                updateStatusBar();
-                                launchRConsole(true);
-                            });
-                        }
-                    });
-                } else {
-                    // Version is not installed
-                    vscode.window.showWarningMessage(
-                        `This project requires R version ${requiredRVersion} (found in renv.lock), but it's not installed. Currently using ${currentDefault?.version || 'unknown'}.`,
-                        'Install Required Version',
-                        'Not Now'
-                    ).then(choice => {
-                        if (choice === 'Install Required Version') {
-                            // Try to install the required version
-                            installWithProgress(requiredRVersion);
-                        }
-                    });
-                }
-            } catch (e) {
-                console.error(`Failed to parse rig output: ${e.message}`);
-            }
-        });
+        await handleRenvVersionRequirement(requiredRVersion, installedVersions, currentDefault);
 
     } catch (error) {
         if (error.code === 'ENOENT') {
-            // File doesn't exist, which is fine
             return;
         } else if (error instanceof SyntaxError) {
             console.error('Failed to parse renv.lock file:', error.message);
             vscode.window.showErrorMessage('Found renv.lock file but failed to parse it. Please check if it\'s valid JSON.');
         } else {
             console.error('Error reading renv.lock file:', error.message);
+        }
+    }
+}
+
+/**
+ * Handles the renv version requirement logic
+ * @param {string} requiredRVersion - Required R version from renv.lock
+ * @param {Array} installedVersions - Array of installed R versions
+ * @param {Object} currentDefault - Current default R version
+ */
+async function handleRenvVersionRequirement(requiredRVersion, installedVersions, currentDefault) {
+    let requiredVersionInstalled = installedVersions.find(r => r.version === requiredRVersion);
+    
+    if (!requiredVersionInstalled) {
+        const [major, minor] = requiredRVersion.split('.');
+        requiredVersionInstalled = installedVersions.find(r => {
+            const [installedMajor, installedMinor] = r.version.split('.');
+            return installedMajor === major && installedMinor === minor;
+        });
+    }
+
+    if (requiredVersionInstalled) {
+        const versionMessage = requiredVersionInstalled.version === requiredRVersion 
+            ? `This project requires R version ${requiredRVersion} (found in renv.lock). Currently using ${currentDefault?.version || 'unknown'}. Would you like to switch?`
+            : `This project requires R version ${requiredRVersion} (found in renv.lock). Found compatible version ${requiredVersionInstalled.version}. Currently using ${currentDefault?.version || 'unknown'}. Would you like to switch?`;
+        
+        const choice = await vscode.window.showInformationMessage(
+            versionMessage,
+            'Switch to Required Version',
+            'Not Now'
+        );
+        
+        if (choice === 'Switch to Required Version') {
+            await switchToVersion(requiredVersionInstalled.name);
+        }
+    } else {
+        const choice = await vscode.window.showWarningMessage(
+            `This project requires R version ${requiredRVersion} (found in renv.lock), but it's not installed. Currently using ${currentDefault?.version || 'unknown'}.`,
+            'Install Required Version',
+            'Not Now'
+        );
+        
+        if (choice === 'Install Required Version') {
+            await handleSudoOperation('install', requiredRVersion, 'add');
         }
     }
 }
