@@ -32,6 +32,16 @@
         "icon": "$(versions)"
       },
       {
+        "command": "rig-manager.installVersion",
+        "title": "Rig: Install R Version",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "rig-manager.removeVersion",
+        "title": "Rig: Uninstall R Version",
+        "icon": "$(trash)"
+      },
+      {
         "command": "rig-manager.refresh",
         "title": "Rig: Refresh R Version Status",
         "icon": "$(sync)"

@@ -2,7 +2,7 @@
 // Import the module and reference it with the alias vscode in your code below
 const vscode = require('vscode');
 // The 'child_process' module allows us to execute shell commands
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 
 // Declare a global variable for the StatusBarItem
 let rStatusBarItem;
@@ -73,6 +73,110 @@ function activate(context) {
     });
     context.subscriptions.push(switchVersionDisposable);
 
+    // The command to install R versoin
+    let installVersionDisposable = vscode.commands.registerCommand('rig-manager.installVersion', () => {
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Fetching available R versions...",
+            cancellable: false
+        }, async () => {
+            // Get available versions from rig in json format
+            exec('rig available --json', (error, stdout, stderr) => {
+                if (error) {
+                    vscode.window.showErrorMessage(`Could not fetch available R versions: ${stderr}`);
+                    return;
+                }
+
+                try {
+                    // Parse the JSON output from rig
+                    const availableVersions = JSON.parse(stdout);
+                    if (!availableVersions || availableVersions.length === 0) {
+                        vscode.window.showInformationMessage('No available R versions found to install.');
+                        return;
+                    }
+
+                    // Create a list of items for the quick pick dropdown
+                    const quickPickItems = availableVersions.map(r => ({
+                        label: r.name,
+                        description: `(${r.type})`,
+                        detail: `Released on: ${new Date(r.date).toLocaleDateString()}`
+                    }));
+
+                    // Show Quick Pick to the user
+                    vscode.window.showQuickPick(quickPickItems, {
+                        placeHolder: 'Select an R version to install',
+                        matchOnDetail: true
+                    }).then(selectedItem => {
+                        if (selectedItem) {
+                            // Install the selected version (using its label) with progress
+                            installWithProgress(selectedItem.label);
+                        }
+                    });
+                } catch (e) {
+                    vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}`);
+                }
+            });
+        });
+    });
+    context.subscriptions.push(installVersionDisposable);
+
+    // The command to remove/uninstall R version
+    let removeVersionDisposable = vscode.commands.registerCommand('rig-manager.removeVersion', () => {
+        // Get installed versions from rig in json format
+        exec('rig list --json', (error, stdout, stderr) => {
+            if (error) {
+                vscode.window.showErrorMessage(`Could not fetch installed R versions: ${stderr}`);
+                return;
+            }
+
+            try {
+                // Parse the JSON output from rig
+                const installedVersions = JSON.parse(stdout);
+                if (!installedVersions || installedVersions.length === 0) {
+                    vscode.window.showInformationMessage('No R versions found to uninstall.');
+                    return;
+                }
+
+                // Filter out the default version to prevent accidental removal
+                const removableVersions = installedVersions.filter(r => !r.default);
+                
+                if (removableVersions.length === 0) {
+                    vscode.window.showWarningMessage('Cannot uninstall the default R version. Please set a different version as default first.');
+                    return;
+                }
+
+                // Create a list of items for the quick pick dropdown
+                const quickPickItems = removableVersions.map(r => ({
+                    label: r.name,
+                    description: `(${r.version})`,
+                    detail: `Path: ${r.path}`
+                }));
+
+                // Show Quick Pick to the user
+                vscode.window.showQuickPick(quickPickItems, {
+                    placeHolder: 'Select an R version to uninstall',
+                    matchOnDetail: true
+                }).then(selectedItem => {
+                    if (selectedItem) {
+                        // Confirm before uninstalling
+                        vscode.window.showWarningMessage(
+                            `Are you sure you want to uninstall R version ${selectedItem.label}? This action cannot be undone.`,
+                            'Yes, Uninstall',
+                            'Cancel'
+                        ).then(choice => {
+                            if (choice === 'Yes, Uninstall') {
+                                uninstallWithProgress(selectedItem.label);
+                            }
+                        });
+                    }
+                });
+            } catch (e) {
+                vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}`);
+            }
+        });
+    });
+    context.subscriptions.push(removeVersionDisposable);
+
     // Add a command to refresh the status bar
     let refreshDisposable = vscode.commands.registerCommand('rig-manager.refresh', () => {
         updateStatusBar();
@@ -84,6 +188,158 @@ function activate(context) {
     // Update status bar and launch console on activation
     updateStatusBar();
     launchRConsole();
+}
+
+/**
+ * Installs an R version using spawn to handle long-running processes that may require sudo.
+ * It prompts the user for their password and pipes it to the sudo command.
+ * @param {string} version - The version of R to install (e.g., "4.3.1", "devel").
+ */
+async function installWithProgress(version) {
+    // Prompt the user for their password to use with sudo
+    const password = await vscode.window.showInputBox({
+        prompt: `Sudo password required to install R ${version}`,            password: true,
+        ignoreFocusOut: true // Keep prompt open even if it loses focus
+    });
+
+    // If the user cancels the password prompt, do nothing.
+    if (password === undefined) {
+        vscode.window.showWarningMessage(`Installation of R ${version} cancelled.`);
+        return;
+    }
+
+    vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Installing R version: ${version}`,
+            cancellable: true
+    }, (progress, token) => {
+        // The command is `sudo`, with `-S` to read the password from stdin.
+        // The arguments are the rest of the command.
+        const child = spawn('sudo', ['-S', 'rig', 'add', version]);
+
+        return new Promise((resolve, reject) => {
+            token.onCancellationRequested(() => {
+                // Sending SIGTERM to the sudo process. This might not kill child processes
+                // spawned by rig, but it's the safest approach without more complex logic.
+                child.kill();
+                vscode.window.showWarningMessage(`Installation of R ${version} cancelled.`);
+                reject();
+            });
+
+            // Write the password to the stdin of the sudo command, followed by a newline.
+            child.stdin.write(password + '\n');
+            child.stdin.end();
+
+            child.stdout.on('data', data => {
+                // Report progress from the command's output
+                const message = data.toString().trim().split('\n').pop();
+                progress.report({ message });
+            });
+
+            child.stderr.on('data', data => {
+                // Log stderr for debugging, but don't show it all to the user.
+                // Specific errors are handled in the 'close' event.
+                console.error(`stderr: ${data}`);
+            });
+
+            child.on('close', code => {
+                if (code === 0) {
+                    vscode.window.showInformationMessage(`Successfully installed R version: ${version}`);
+                    updateStatusBar();
+                    resolve();
+                } else {
+                    // If the exit code is 1, it's highly likely a password error with sudo.
+                    if (code === 1) {
+                        vscode.window.showErrorMessage(`Failed to install R ${version}. Incorrect password or permission error.`);
+                    } else {
+                        vscode.window.showErrorMessage(`Failed to install R version ${version}. See extension host logs for details. Exit code: ${code}`);
+                    }
+                    reject();
+                }
+            });
+
+            child.on('error', err => {
+                vscode.window.showErrorMessage(`Failed to start installation process: ${err.message}`);
+                reject(err);
+            });
+        });
+    });
+}
+
+/**
+ * Uninstalls an R version using spawn to handle long-running processes that may require sudo.
+ * It prompts the user for their password and pipes it to the sudo command.
+ * @param {string} version - The version of R to uninstall (e.g., "4.3.1", "devel").
+ */
+async function uninstallWithProgress(version) {
+    // Prompt the user for their password to use with sudo
+    const password = await vscode.window.showInputBox({
+        prompt: `Sudo password required to uninstall R ${version}`,
+        password: true,
+        ignoreFocusOut: true // Keep prompt open even if it loses focus
+    });
+
+    // If the user cancels the password prompt, do nothing.
+    if (password === undefined) {
+        vscode.window.showWarningMessage(`Uninstallation of R ${version} cancelled.`);
+        return;
+    }
+
+    vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: `Uninstalling R version: ${version}`,
+        cancellable: true
+    }, (progress, token) => {
+        // The command is `sudo`, with `-S` to read the password from stdin.
+        // The arguments are the rest of the command.
+        const child = spawn('sudo', ['-S', 'rig', 'rm', version]);
+
+        return new Promise((resolve, reject) => {
+            token.onCancellationRequested(() => {
+                // Sending SIGTERM to the sudo process.
+                child.kill();
+                vscode.window.showWarningMessage(`Uninstallation of R ${version} cancelled.`);
+                reject();
+            });
+
+            // Write the password to the stdin of the sudo command, followed by a newline.
+            child.stdin.write(password + '\n');
+            child.stdin.end();
+
+            child.stdout.on('data', data => {
+                // Report progress from the command's output
+                const message = data.toString().trim().split('\n').pop();
+                progress.report({ message });
+            });
+
+            child.stderr.on('data', data => {
+                // Log stderr for debugging, but don't show it all to the user.
+                // Specific errors are handled in the 'close' event.
+                console.error(`stderr: ${data}`);
+            });
+
+            child.on('close', code => {
+                if (code === 0) {
+                    vscode.window.showInformationMessage(`Successfully uninstalled R version: ${version}`);
+                    updateStatusBar();
+                    resolve();
+                } else {
+                    // If the exit code is 1, it's highly likely a password error with sudo.
+                    if (code === 1) {
+                        vscode.window.showErrorMessage(`Failed to uninstall R ${version}. Incorrect password or permission error.`);
+                    } else {
+                        vscode.window.showErrorMessage(`Failed to uninstall R version ${version}. See extension host logs for details. Exit code: ${code}`);
+                    }
+                    reject();
+                }
+            });
+
+            child.on('error', err => {
+                vscode.window.showErrorMessage(`Failed to start uninstallation process: ${err.message}`);
+                reject(err);
+            });
+        });
+    });
 }
 
 /**
@@ -159,7 +415,7 @@ function updateStatusBar() {
         return;
     }
 
-    exec('rig list --json', (error, stdout, stderr) => {
+    exec('rig list --json', (error, stdout) => {
         if (error) {
             // If rig command fails, hide the status bar item
             rStatusBarItem.hide();
