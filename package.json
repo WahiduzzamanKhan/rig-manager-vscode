@@ -45,6 +45,11 @@
         "command": "rig-manager.refresh",
         "title": "Rig: Refresh R Version Status",
         "icon": "$(sync)"
+      },
+      {
+        "command": "rig-manager.checkRenvRequirements",
+        "title": "Rig: Check renv Requirements",
+        "icon": "$(search)"
       }
     ],
     "configuration":[
@@ -60,6 +65,11 @@
             "type": "boolean",
             "default": true,
             "description": "Automatically launch an R console when the extension activates."
+          },
+          "rig-manager.renv.autoCheck": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically check for renv.lock file and suggest switching to the required R version."
           }
         }
       }

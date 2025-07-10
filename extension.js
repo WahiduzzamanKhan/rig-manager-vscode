@@ -185,9 +185,22 @@ function activate(context) {
     });
     context.subscriptions.push(refreshDisposable);
 
+    // Add a command to check renv requirements
+    let checkRenvDisposable = vscode.commands.registerCommand('rig-manager.checkRenvRequirements', () => {
+        checkRenvRequirements(true); // Force check even if auto-check is disabled
+    });
+    context.subscriptions.push(checkRenvDisposable);
+
     // Update status bar and launch console on activation
     updateStatusBar();
     launchRConsole();
+    
+    // Check for renv requirements when extension activates
+    setTimeout(() => {
+        checkRenvRequirements().catch(error => {
+            console.error('Error checking renv requirements:', error);
+        });
+    }, 1000); // Delay to ensure workspace is fully loaded
 }
 
 /**
@@ -443,7 +456,141 @@ function updateStatusBar() {
     });
 }
 
-// This method is called when your extension is deactivated
+/**
+ * Checks if the current workspace has an renv.lock file and suggests switching to the required R version.
+ * If the required version is not installed, it suggests installing it.
+ * @param {boolean} forceCheck - If true, bypasses the configuration setting and always checks
+ */
+async function checkRenvRequirements(forceCheck = false) {
+    // Check configuration setting unless this is a forced check
+    if (!forceCheck) {
+        const config = vscode.workspace.getConfiguration('rig-manager');
+        if (!config.get('renv.autoCheck')) {
+            return; // Exit if auto-check is disabled by the user
+        }
+    }
+
+    // Check if there's an active workspace
+    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+        return;
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+
+    // Look for renv.lock file in the workspace root
+    const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
+    const renvLockPath = path.join(workspaceRoot, 'renv.lock');
+
+    try {
+        // Check if renv.lock exists
+        if (!fs.existsSync(renvLockPath)) {
+            if (forceCheck) {
+                vscode.window.showInformationMessage('No renv.lock file found in the current workspace.');
+            }
+            return; // No renv.lock file found, nothing to do
+        }
+
+        // Read and parse renv.lock file
+        const renvLockContent = fs.readFileSync(renvLockPath, 'utf8');
+        const renvData = JSON.parse(renvLockContent);
+
+        // Extract R version from renv.lock
+        const requiredRVersion = renvData.R?.Version;
+        if (!requiredRVersion) {
+            console.log('No R version specified in renv.lock');
+            return;
+        }
+
+        console.log(`Found renv.lock requiring R version: ${requiredRVersion}`);
+
+        // Get currently installed R versions
+        exec('rig list --json', (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Error checking installed R versions: ${stderr}`);
+                return;
+            }
+
+            try {
+                const installedVersions = JSON.parse(stdout);
+                const currentDefault = installedVersions.find(r => r.default === true);
+                
+                // Check if we're already using the required version
+                if (currentDefault && currentDefault.version === requiredRVersion) {
+                    console.log(`Already using required R version: ${requiredRVersion}`);
+                    return; // Already using the correct version
+                }
+
+                // Check if the required version is installed (try exact match first, then partial match)
+                let requiredVersionInstalled = installedVersions.find(r => r.version === requiredRVersion);
+                
+                // If no exact match, try to find a compatible version (e.g., 4.3.1 matches 4.3.0)
+                if (!requiredVersionInstalled) {
+                    const [major, minor] = requiredRVersion.split('.');
+                    requiredVersionInstalled = installedVersions.find(r => {
+                        const [installedMajor, installedMinor] = r.version.split('.');
+                        return installedMajor === major && installedMinor === minor;
+                    });
+                }
+
+                if (requiredVersionInstalled) {
+                    // Version is installed but not set as default
+                    const versionMessage = requiredVersionInstalled.version === requiredRVersion 
+                        ? `This project requires R version ${requiredRVersion} (found in renv.lock). Currently using ${currentDefault?.version || 'unknown'}. Would you like to switch?`
+                        : `This project requires R version ${requiredRVersion} (found in renv.lock). Found compatible version ${requiredVersionInstalled.version}. Currently using ${currentDefault?.version || 'unknown'}. Would you like to switch?`;
+                    
+                    vscode.window.showInformationMessage(
+                        versionMessage,
+                        'Switch to Required Version',
+                        'Not Now'
+                    ).then(choice => {
+                        if (choice === 'Switch to Required Version') {
+                            // Switch to the required version
+                            exec(`rig default ${requiredVersionInstalled.name}`, (error, stdout, stderr) => {
+                                if (error) {
+                                    vscode.window.showErrorMessage(`Failed to switch to R ${requiredVersionInstalled.version}: ${stderr}`);
+                                    return;
+                                }
+                                vscode.window.showInformationMessage(`Switched to R version ${requiredVersionInstalled.version} as required by renv.lock`);
+                                updateStatusBar();
+                                launchRConsole(true);
+                            });
+                        }
+                    });
+                } else {
+                    // Version is not installed
+                    vscode.window.showWarningMessage(
+                        `This project requires R version ${requiredRVersion} (found in renv.lock), but it's not installed. Currently using ${currentDefault?.version || 'unknown'}.`,
+                        'Install Required Version',
+                        'Not Now'
+                    ).then(choice => {
+                        if (choice === 'Install Required Version') {
+                            // Try to install the required version
+                            installWithProgress(requiredRVersion);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error(`Failed to parse rig output: ${e.message}`);
+            }
+        });
+
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            // File doesn't exist, which is fine
+            return;
+        } else if (error instanceof SyntaxError) {
+            console.error('Failed to parse renv.lock file:', error.message);
+            vscode.window.showErrorMessage('Found renv.lock file but failed to parse it. Please check if it\'s valid JSON.');
+        } else {
+            console.error('Error reading renv.lock file:', error.message);
+        }
+    }
+}
+
+/**
+ * This method is called when your extension is deactivated
+ */
 function deactivate() {}
 
 module.exports = {
