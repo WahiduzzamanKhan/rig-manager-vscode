@@ -1,49 +1,174 @@
 # Rig Manager for Visual Studio Code
 
-An extension to seamlessly manage your R versions with the [rig](https://github.com/r-lib/rig) R installation manager, directly from within VS Code.
+A powerful VS Code extension for seamlessly managing your R versions with the [rig](https://github.com/r-lib/rig) R installation manager. Switch between R versions, manage installations, and maintain project-specific environments directly from within VS Code.
 
-This extension activates automatically in R projects, providing an integrated experience for switching R versions and working with the corresponding R console.
+## 🚀 Features
 
-## Features
+### 📊 **Persistent Status Bar Integration**
 
-### Persistent Status Bar Item
-See the current default R version at a glance in the Status Bar as soon as you open an R project.
+See your current default R version at a glance in the Status Bar. Click to quickly switch between installed versions.
+
 ![Status Bar](screenshots/status_bar.png)
 
-### Quick Version Switching
-Click the Status Bar item to quickly switch between your installed R versions.
+### ⚡ **One-Click Version Switching**
+
+Effortlessly switch between your installed R versions with an intuitive quick-pick interface.
+
 ![Switch R Version](screenshots/quick_version_switch.gif)
 
-### Automatic R Console
-An R console corresponding to your default `rig` version is automatically launched when the extension activates. The R console is also automatically restarted with the correct version when you switch, ensuring your environment is always in sync.
+### 🖥️ **Smart R Console Management**
+
+- **Auto-launch**: R console automatically starts with your default rig version
+- **Smart restart**: Console restarts with the correct version when you switch
+- **REditorSupport integration**: Works seamlessly with the R extension
+
 ![Launch R Console](screenshots/auto_launch_r_console.gif)
 
-### Command Palette Integration
-Access all features through the Command Palette:
-  * `Rig: Switch R Version`
-  * `Rig: Refresh R Version Status`
+### 📦 **renv Project Integration**
 
-![Command Palette](screenshots/command_palette_integration.gif)
+- **Automatic detection**: Scans for `renv.lock` files in your workspace
+- **Version suggestions**: Prompts to switch to project-required R versions
+- **Missing version handling**: Offers to install required versions automatically
+- **Project consistency**: Ensures your R environment matches project requirements
+
+![renv integration](screenshots/renv_integration.gif)
+
+### 🎯 **Complete Version Management**
+
+- **Install new versions**: Browse and install available R versions
+- **Safe uninstallation**: Remove unused R versions (with protection for default version)
+- **Version validation**: Ensures you don't accidentally remove critical installations
+- **Progress tracking**: Visual progress indicators for all operations
+
+### 🎨 **Command Palette Integration**
+
+Access all functionality through VS Code's Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
+
+- `Rig: Switch R Version` - Quick switch between installed versions
+- `Rig: Install R Version` - Browse and install new R versions
+- `Rig: Uninstall R Version` - Remove unused R installations
+- `Rig: Refresh R Version Status` - Update status bar and restart console
+- `Rig: Check renv Requirements` - Manually check project requirements
+
+![Command Palette](screenshots/command_palette_integration.png)
+
+## 📋 Requirements
+
+### Essential Dependencies
+
+- **[rig](https://github.com/r-lib/rig)**: Must be installed and available in your system's `PATH`
+- **R installations**: At least one R version managed by rig
+
+### Installation Instructions
+
+Visit the [official rig repository](https://github.com/r-lib/rig) for platform-specific installation instructions:
+
+```bash
+# macOS (via Homebrew)
+brew tap r-lib/rig
+brew install --cask rig
+
+# Windows (via Chocolatey)
+choco install rig
+
+# Linux (via download)
+curl -Ls https://github.com/r-lib/rig/releases/download/latest/rig-linux-$(arch)-latest.tar.gz | `which sudo` tar xz -C /usr/local
+```
+
+### Recommended Extensions
+
+- **[R Extension for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=REditorSupport.r)**: Enhanced R language support
+
+## ⚙️ Configuration
+
+This extension contributes the following settings:
+
+| Setting                           | Type      | Default | Description                                                          |
+| --------------------------------- | --------- | ------- | -------------------------------------------------------------------- |
+| `rig-manager.statusBar.visible`   | `boolean` | `true`  | Show/hide the R version status bar item                              |
+| `rig-manager.rConsole.autoLaunch` | `boolean` | `true`  | Automatically launch R console on extension activation               |
+| `rig-manager.renv.autoCheck`      | `boolean` | `true`  | Automatically check for renv.lock files and suggest version switches |
+
+### Accessing Settings
+
+1. Open VS Code Settings (`Ctrl+,` / `Cmd+,`)
+2. Search for "rig-manager"
+3. Adjust settings as needed
+
+## 🔄 Activation
+
+The extension automatically activates when:
+
+- Opening R files (`.R`, `.r`)
+- Opening R Markdown files (`.Rmd`, `.rmd`)
+- Workspace contains R files
+- Workspace contains `.Rprofile`
+- Workspace contains `renv.lock`
+
+## 🛠️ Usage
+
+### Basic Workflow
+
+1. **Install rig** and set up your R versions
+2. **Open an R project** in VS Code
+3. **Check the status bar** for your current R version
+4. **Switch versions** by clicking the status bar or using commands
+5. **Work with confidence** knowing your environment matches your project
+
+### Version Management
+
+- **Switching**: Click status bar item or use `Rig: Switch R Version`
+- **Installing**: Use `Rig: Install R Version` to browse available releases
+- **Removing**: Use `Rig: Uninstall R Version` (protects default version)
+
+### Project Integration
+
+- **renv projects**: Extension automatically detects version requirements
+- **Version mismatches**: Get prompted to switch to project-required versions
+- **Missing versions**: Option to install required versions automatically
+
+## Common Issues
+
+- This is an early version of the extension. Please report any bugs or feature requests on the [GitHub repository issues page](https://github.com/WahiduzzamanKhan/rig-manager-vscode/issues).
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **[rig team](https://github.com/r-lib/rig)**: For creating the excellent R installation manager
+- **[REditorSupport](https://github.com/REditorSupport)**: For the foundational R extension for VS Code
 
 ---
 
-## Requirements
+## 📚 Release Notes
 
-You must have `rig` installed and available in your system's `PATH`. You can find installation instructions on the [official rig repository](https://github.com/r-lib/rig).
+### 1.0.0
 
-## Extension Settings
+#### ✨ **Core Features**
 
-This extension does not currently contribute any settings to VS Code.
+- **R Version Management**: Complete lifecycle management of R installations
+- **Status Bar Integration**: Persistent display of current R version
+- **Quick Version Switching**: One-click switching between installed versions
+- **Automatic R Console**: Smart console management with version synchronization
 
-## Known Issues
+#### 🔧 **Advanced Features**
 
-* This is an early version of the extension. Please report any bugs or feature requests on the [GitHub repository issues page](https://github.com/WahiduzzamanKhan/rig-manager-vscode/issues).
+- **renv Integration**: Automatic project requirement detection and suggestions
+- **Version Installation**: Browse and install new R versions from within VS Code
+- **Safe Uninstallation**: Protected removal of R versions with validation
+- **Command Palette**: Full feature access through VS Code commands
 
-## Release Notes
+#### 🎨 **User Experience**
 
-### 0.1.0
+- **Auto-activation**: Intelligent activation based on workspace content
+- **Progress Indicators**: Visual feedback for all long-running operations
+- **Error Handling**: Comprehensive error messages and recovery suggestions
+- **Configuration**: Flexible settings for customizing behavior
 
-- Quickly switch R version.
-- Show up in status bar.
-- Auto activate based on the opened folder/file.
-- Auto launch R console.
+#### 🔗 **Integrations**
+
+- **REditorSupport**: Seamless integration with the R extension
+- **rig compatibility**: Full support for rig's feature set
+- **Cross-platform**: Windows, macOS, and Linux support
