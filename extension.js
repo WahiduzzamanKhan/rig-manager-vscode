@@ -25,10 +25,27 @@ function executeRigCommand(command, errorMessage = 'Error executing rig command'
             }
 
             try {
-                const result = JSON.parse(stdout);
+                // Clean up the output to handle Windows path escaping issues
+                let cleanOutput = stdout.trim();
+                
+                // On Windows, rig outputs paths with single backslashes which are invalid in JSON
+                // We need to properly escape them
+                if (process.platform === 'win32') {
+                    // Use a more targeted approach: only escape backslashes in path-like strings
+                    // Look for patterns like "C:\..." and escape the backslashes
+                    cleanOutput = cleanOutput.replace(/"([A-Za-z]:[^"]*?)"/g, (match, path) => {
+                        // Escape backslashes in the path
+                        const escapedPath = path.replace(/\\/g, '\\\\');
+                        return `"${escapedPath}"`;
+                    });
+                }
+                
+                const result = JSON.parse(cleanOutput);
                 resolve(result);
             } catch (e) {
-                vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}`);
+                console.error('Raw rig output:', stdout);
+                console.error('JSON parse error:', e.message);
+                vscode.window.showErrorMessage(`Failed to parse rig output: ${e.message}. Check the extension output for details.`);
                 reject(e);
             }
         });
@@ -155,12 +172,10 @@ async function handleWindowsRigOperation(operation, version, rigCommand) {
                 reject(new Error('Operation cancelled'));
             });
 
-            let stdout = '';
             let stderr = '';
 
             child.stdout.on('data', data => {
                 const output = data.toString();
-                stdout += output;
                 const message = output.trim().split('\n').pop();
                 if (message) {
                     progress.report({ message });
@@ -303,7 +318,7 @@ function registerCommands(context) {
             if (selectedItem) {
                 await switchToVersion(selectedItem.label);
             }
-        } catch (error) {
+        } catch {
             // Error already handled in utility functions
         }
     });
@@ -322,7 +337,7 @@ function registerCommands(context) {
                 if (selectedItem) {
                     await handleRigOperation('install', selectedItem.label, 'add');
                 }
-            } catch (error) {
+            } catch {
                 // Error already handled in utility functions
             }
         });
@@ -352,7 +367,7 @@ function registerCommands(context) {
                     await handleRigOperation('uninstall', selectedItem.label, 'rm');
                 }
             }
-        } catch (error) {
+        } catch {
             // Error already handled in utility functions
         }
     });
@@ -447,7 +462,7 @@ function launchBasicRConsole(forceNew) {
                 vscode.window.showWarningMessage('No default R version found. Cannot launch R console.');
             }
         })
-        .catch(error => {
+        .catch(() => {
             // Error already handled in executeRigCommand
         });
 }
@@ -476,7 +491,7 @@ function updateStatusBar() {
                 rStatusBarItem.show();
             }
         })
-        .catch(error => {
+        .catch(() => {
             rStatusBarItem.hide();
         });
 }
@@ -509,11 +524,26 @@ async function checkRenvRequirements(forceCheck = false) {
         }
 
         const renvLockContent = fs.readFileSync(renvLockPath, 'utf8');
-        const renvData = JSON.parse(renvLockContent);
+        
+        let renvData;
+        try {
+            renvData = JSON.parse(renvLockContent);
+        } catch (parseError) {
+            console.error('Failed to parse renv.lock file:', parseError.message);
+            console.error('renv.lock content preview:', renvLockContent.substring(0, 200));
+            if (forceCheck) {
+                vscode.window.showErrorMessage('Found renv.lock file but failed to parse it. Please check if it\'s valid JSON.');
+            }
+            return;
+        }
+        
         const requiredRVersion = renvData.R?.Version;
         
         if (!requiredRVersion) {
             console.log('No R version specified in renv.lock');
+            if (forceCheck) {
+                vscode.window.showInformationMessage('No R version requirement found in renv.lock file.');
+            }
             return;
         }
 
@@ -524,6 +554,9 @@ async function checkRenvRequirements(forceCheck = false) {
         
         if (currentDefault && currentDefault.version === requiredRVersion) {
             console.log(`Already using required R version: ${requiredRVersion}`);
+            if (forceCheck) {
+                vscode.window.showInformationMessage(`Already using the required R version: ${requiredRVersion}`);
+            }
             return;
         }
 
@@ -532,11 +565,11 @@ async function checkRenvRequirements(forceCheck = false) {
     } catch (error) {
         if (error.code === 'ENOENT') {
             return;
-        } else if (error instanceof SyntaxError) {
-            console.error('Failed to parse renv.lock file:', error.message);
-            vscode.window.showErrorMessage('Found renv.lock file but failed to parse it. Please check if it\'s valid JSON.');
         } else {
-            console.error('Error reading renv.lock file:', error.message);
+            console.error('Error in checkRenvRequirements:', error.message);
+            if (forceCheck) {
+                vscode.window.showErrorMessage(`Error checking renv requirements: ${error.message}`);
+            }
         }
     }
 }
