@@ -112,13 +112,97 @@ async function switchToVersion(versionName) {
 }
 
 /**
- * Generic progress handler for sudo operations
+ * Generic progress handler for install/uninstall operations (cross-platform)
  * @param {string} operation - Operation name ('install' or 'uninstall')
  * @param {string} version - Version to operate on
  * @param {string} rigCommand - The rig command to execute ('add' or 'rm')
  * @returns {Promise<void>}
  */
-async function handleSudoOperation(operation, version, rigCommand) {
+async function handleRigOperation(operation, version, rigCommand) {
+    const platform = process.platform;
+    
+    // On Windows, rig operations typically don't require elevation
+    if (platform === 'win32') {
+        return handleWindowsRigOperation(operation, version, rigCommand);
+    } else {
+        // macOS and Linux require sudo
+        return handleUnixRigOperation(operation, version, rigCommand);
+    }
+}
+
+/**
+ * Handles rig operations on Windows
+ * @param {string} operation - Operation name ('install' or 'uninstall')
+ * @param {string} version - Version to operate on
+ * @param {string} rigCommand - The rig command to execute ('add' or 'rm')
+ * @returns {Promise<void>}
+ */
+async function handleWindowsRigOperation(operation, version, rigCommand) {
+    return vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: `${operation.charAt(0).toUpperCase() + operation.slice(1)}ing R version: ${version}`,
+        cancellable: true
+    }, (progress, token) => {
+        const child = spawn('rig', [rigCommand, version], {
+            shell: true,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        return new Promise((resolve, reject) => {
+            token.onCancellationRequested(() => {
+                child.kill();
+                vscode.window.showWarningMessage(`${operation.charAt(0).toUpperCase() + operation.slice(1)} of R ${version} cancelled.`);
+                reject(new Error('Operation cancelled'));
+            });
+
+            let stdout = '';
+            let stderr = '';
+
+            child.stdout.on('data', data => {
+                const output = data.toString();
+                stdout += output;
+                const message = output.trim().split('\n').pop();
+                if (message) {
+                    progress.report({ message });
+                }
+            });
+
+            child.stderr.on('data', data => {
+                const output = data.toString();
+                stderr += output;
+                console.error(`stderr: ${output}`);
+            });
+
+            child.on('close', code => {
+                if (code === 0) {
+                    vscode.window.showInformationMessage(`Successfully ${operation}ed R version: ${version}`);
+                    updateStatusBar();
+                    resolve();
+                } else {
+                    const errorMsg = stderr.includes('Access is denied') || stderr.includes('permission')
+                        ? `Failed to ${operation} R ${version}. Administrator privileges may be required. Try running VS Code as administrator.`
+                        : `Failed to ${operation} R version ${version}. ${stderr || `Exit code: ${code}`}`;
+                    vscode.window.showErrorMessage(errorMsg);
+                    reject(new Error(errorMsg));
+                }
+            });
+
+            child.on('error', err => {
+                vscode.window.showErrorMessage(`Failed to start ${operation} process: ${err.message}`);
+                reject(err);
+            });
+        });
+    });
+}
+
+/**
+ * Handles rig operations on Unix-like systems (macOS, Linux) with sudo
+ * @param {string} operation - Operation name ('install' or 'uninstall')
+ * @param {string} version - Version to operate on
+ * @param {string} rigCommand - The rig command to execute ('add' or 'rm')
+ * @returns {Promise<void>}
+ */
+async function handleUnixRigOperation(operation, version, rigCommand) {
     const password = await vscode.window.showInputBox({
         prompt: `Sudo password required to ${operation} R ${version}`,
         password: true,
@@ -141,7 +225,7 @@ async function handleSudoOperation(operation, version, rigCommand) {
             token.onCancellationRequested(() => {
                 child.kill();
                 vscode.window.showWarningMessage(`${operation.charAt(0).toUpperCase() + operation.slice(1)} of R ${version} cancelled.`);
-                reject();
+                reject(new Error('Operation cancelled'));
             });
 
             child.stdin.write(password + '\n');
@@ -166,7 +250,7 @@ async function handleSudoOperation(operation, version, rigCommand) {
                         ? `Failed to ${operation} R ${version}. Incorrect password or permission error.`
                         : `Failed to ${operation} R version ${version}. See extension host logs for details. Exit code: ${code}`;
                     vscode.window.showErrorMessage(errorMsg);
-                    reject();
+                    reject(new Error(errorMsg));
                 }
             });
 
@@ -236,7 +320,7 @@ function registerCommands(context) {
                 const selectedItem = await showVersionQuickPick(availableVersions, 'Select an R version to install', 'install');
                 
                 if (selectedItem) {
-                    await handleSudoOperation('install', selectedItem.label, 'add');
+                    await handleRigOperation('install', selectedItem.label, 'add');
                 }
             } catch (error) {
                 // Error already handled in utility functions
@@ -265,7 +349,7 @@ function registerCommands(context) {
                 );
                 
                 if (choice === 'Yes, Uninstall') {
-                    await handleSudoOperation('uninstall', selectedItem.label, 'rm');
+                    await handleRigOperation('uninstall', selectedItem.label, 'rm');
                 }
             }
         } catch (error) {
@@ -496,7 +580,7 @@ async function handleRenvVersionRequirement(requiredRVersion, installedVersions,
         );
         
         if (choice === 'Install Required Version') {
-            await handleSudoOperation('install', requiredRVersion, 'add');
+            await handleRigOperation('install', requiredRVersion, 'add');
         }
     }
 }
