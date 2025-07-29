@@ -113,19 +113,102 @@ async function showVersionQuickPick(versions, placeholder, type) {
  * @returns {Promise<void>}
  */
 async function switchToVersion(versionName) {
-    return new Promise((resolve, reject) => {
-        exec(`rig default ${versionName}`, (error, stdout, stderr) => {
-            if (error) {
-                vscode.window.showErrorMessage(`Failed to switch to ${versionName}: ${stderr}`);
-                reject(new Error(stderr));
-                return;
-            }
-            vscode.window.showInformationMessage(`Switched default R version to: ${versionName}`);
-            updateStatusBar();
-            launchRConsole(true);
-            resolve();
+    const platform = process.platform;
+    if (platform === 'win32') {
+        // Windows: no sudo needed
+        return new Promise((resolve, reject) => {
+            exec(`rig default ${versionName}`, (error, stdout, stderr) => {
+                if (error) {
+                    vscode.window.showErrorMessage(`Failed to switch to ${versionName}: ${stderr}`);
+                    reject(new Error(stderr));
+                    return;
+                }
+                vscode.window.showInformationMessage(`Switched default R version to: ${versionName}`);
+                updateStatusBar();
+                launchRConsole(true);
+                resolve();
+            });
         });
-    });
+    } else if (platform === 'darwin') {
+        // macOS: try without sudo first, fallback to sudo if needed
+        return new Promise((resolve, reject) => {
+            exec(`rig default ${versionName}`, async (error, stdout, stderr) => {
+                if (!error) {
+                    vscode.window.showInformationMessage(`Switched default R version to: ${versionName}`);
+                    updateStatusBar();
+                    launchRConsole(true);
+                    resolve();
+                    return;
+                }
+                // If error, try with sudo
+                const password = await vscode.window.showInputBox({
+                    prompt: `Sudo password required to switch default R version to ${versionName}`,
+                    password: true,
+                    ignoreFocusOut: true
+                });
+                if (password === undefined) {
+                    vscode.window.showWarningMessage(`Switch to R ${versionName} cancelled.`);
+                    reject(new Error('Operation cancelled'));
+                    return;
+                }
+                const child = spawn('sudo', ['-S', 'rig', 'default', versionName]);
+                let stderrData = '';
+                child.stdin.write(password + '\n');
+                child.stdin.end();
+                child.stdout.on('data', () => {});
+                child.stderr.on('data', data => { stderrData += data.toString(); });
+                child.on('close', code => {
+                    if (code === 0) {
+                        vscode.window.showInformationMessage(`Switched default R version to: ${versionName}`);
+                        updateStatusBar();
+                        launchRConsole(true);
+                        resolve();
+                    } else {
+                        vscode.window.showErrorMessage(`Failed to switch to ${versionName}: ${stderrData}`);
+                        reject(new Error(stderrData));
+                    }
+                });
+                child.on('error', err => {
+                    vscode.window.showErrorMessage(`Failed to start sudo process: ${err.message}`);
+                    reject(err);
+                });
+            });
+        });
+    } else {
+        // Linux: always prompt for sudo
+        const password = await vscode.window.showInputBox({
+            prompt: `Sudo password required to switch default R version to ${versionName}`,
+            password: true,
+            ignoreFocusOut: true
+        });
+        if (password === undefined) {
+            vscode.window.showWarningMessage(`Switch to R ${versionName} cancelled.`);
+            throw new Error('Operation cancelled');
+        }
+        return new Promise((resolve, reject) => {
+            const child = spawn('sudo', ['-S', 'rig', 'default', versionName]);
+            let stderrData = '';
+            child.stdin.write(password + '\n');
+            child.stdin.end();
+            child.stdout.on('data', () => {});
+            child.stderr.on('data', data => { stderrData += data.toString(); });
+            child.on('close', code => {
+                if (code === 0) {
+                    vscode.window.showInformationMessage(`Switched default R version to: ${versionName}`);
+                    updateStatusBar();
+                    launchRConsole(true);
+                    resolve();
+                } else {
+                    vscode.window.showErrorMessage(`Failed to switch to ${versionName}: ${stderrData}`);
+                    reject(new Error(stderrData));
+                }
+            });
+            child.on('error', err => {
+                vscode.window.showErrorMessage(`Failed to start sudo process: ${err.message}`);
+                reject(err);
+            });
+        });
+    }
 }
 
 /**
