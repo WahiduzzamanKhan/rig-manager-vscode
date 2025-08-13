@@ -28,15 +28,15 @@ Effortlessly switch between your installed R versions with an intuitive quick-pi
 
 - **Automatic detection**: Scans for `renv.lock` files in your workspace
 - **Version suggestions**: Prompts to switch to project-required R versions
-- **Missing version handling**: Offers to install required versions automatically (macOS only)
+- **Missing version handling**: Offers to install required versions automatically (macOS, Windows, and Linux)
 - **Project consistency**: Ensures your R environment matches project requirements
 
 ![renv integration](screenshots/renv_integration.gif)
 
 ### 🎯 **Complete Version Management**
 
-- **Install new versions**: Browse and install available R versions (macOS only)
-- **Safe uninstallation**: Remove unused R versions (with protection for default version) (macOS only)
+- **Install new versions**: Browse and install available R versions (macOS, Windows, and Linux)
+- **Safe uninstallation**: Remove unused R versions (with protection for default version) (macOS, Windows, and Linux)
 - **Version validation**: Ensures you don't accidentally remove critical installations
 - **Progress tracking**: Visual progress indicators for all operations
 
@@ -45,8 +45,8 @@ Effortlessly switch between your installed R versions with an intuitive quick-pi
 Access all functionality through VS Code's Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
 - `Rig: Switch R Version` - Quick switch between installed versions
-- `Rig: Install R Version` - Browse and install new R versions (macOS only)
-- `Rig: Uninstall R Version` - Remove unused R installations (macOS only)
+- `Rig: Install R Version` - Browse and install new R versions (macOS, Windows, and Linux)
+- `Rig: Uninstall R Version` - Remove unused R installations (macOS, Windows, and Linux)
 - `Rig: Refresh R Version Status` - Update status bar and restart console
 - `Rig: Check renv Requirements` - Manually check project requirements
 
@@ -118,8 +118,8 @@ The extension automatically activates when:
 ### Version Management
 
 - **Switching**: Click status bar item or use `Rig: Switch R Version`
-- **Installing**: Use `Rig: Install R Version` to browse available releases
-- **Removing**: Use `Rig: Uninstall R Version` (protects default version)
+- **Installing**: Use `Rig: Install R Version` to browse available releases (macOS, Windows, and Linux)
+- **Removing**: Use `Rig: Uninstall R Version` (protects default version) (macOS, Windows, and Linux)
 
 ### Project Integration
 
@@ -129,6 +129,8 @@ The extension automatically activates when:
 
 ## Common Issues
 
+- Some Windows systems may require running VS Code as Administrator for certain operations
+- First-time setup may require manual PATH configuration on some systems
 - This is an early version of the extension. Please report any bugs or feature requests on the [GitHub repository issues page](https://github.com/WahiduzzamanKhan/rig-manager-vscode/issues).
 
 ## 📄 License
@@ -146,9 +148,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Added
 
+- Command to install R version (Windows support).
+- Command to uninstall R version (Windows support).
 - Launch R Terminal via REditorSupport if installed.
-- Command to install R version (macOS only).
-- Command to uninstall R version (macOS only).
 - `renv` integration: Automatic detection of `renv.lock` files in workspace.
 - Smart version switching suggestions based on project requirements.
 - Command to manually check renv requirements.
@@ -160,5 +162,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Fixed
 
+- Improved JSON parsing for rig command output.
+- Better handling of Windows path escaping.
 - Properly dispose of existing R terminals when switching versions.
 - Prevent multiple R consoles from being created when switching versions.
