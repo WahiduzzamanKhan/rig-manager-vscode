@@ -2,6 +2,32 @@
 
 A powerful VS Code extension for seamlessly managing your R versions with the [rig](https://github.com/r-lib/rig) R installation manager. Switch between R versions, manage installations, and maintain project-specific environments directly from within VS Code.
 
+## Table of Contents
+
+- [Features](#-features)
+  - [Persistent Status Bar Integration](#-persistent-status-bar-integration)
+  - [One-Click Version Switching](#-one-click-version-switching)
+  - [Smart R Console Management](#-smart-r-console-management)
+  - [renv Project Integration](#-renv-project-integration)
+  - [Complete Version Management](#-complete-version-management)
+  - [Command Palette Integration](#-command-palette-integration)
+- [Requirements](#-requirements)
+  - [Essential Dependencies](#essential-dependencies)
+  - [Install Rig](#install-rig)
+- [Installation Instructions](#-installation-instructions)
+  - [Recommended Extensions](#recommended-extensions)
+- [Configuration](#-configuration)
+  - [Accessing Settings](#accessing-settings)
+- [Activation](#-activation)
+- [Usage](#-usage)
+  - [Basic Workflow](#basic-workflow)
+  - [Version Management](#version-management)
+  - [Project Integration](#project-integration)
+- [Common Issues](#common-issues)
+- [License](#-license)
+- [Acknowledgments](#-acknowledgments)
+- [Changelog for this version](#-changelog-for-this-version)
+
 ## 🚀 Features
 
 ### 📊 **Persistent Status Bar Integration**
@@ -59,7 +85,7 @@ Access all functionality through VS Code's Command Palette (`Ctrl+Shift+P` / `Cm
 - **[rig](https://github.com/r-lib/rig)**: Must be installed and available in your system's `PATH`
 - **R installations**: At least one R version managed by rig
 
-### Installation Instructions
+### Install Rig
 
 Visit the [official rig repository](https://github.com/r-lib/rig) for platform-specific installation instructions:
 
@@ -74,6 +100,22 @@ choco install rig
 # Linux (via download)
 curl -Ls https://github.com/r-lib/rig/releases/download/latest/rig-linux-$(arch)-latest.tar.gz | `which sudo` tar xz -C /usr/local
 ```
+
+## 📦 Installation Instructions
+
+⚠️ **Note**: This extension is not yet published on the VS Code Marketplace.
+
+**To install manually:**
+
+1. Make sure `rig` is installed and available in your system's `PATH`
+2. Go to [Releases](https://github.com/WahiduzzamanKhan/rig-manager-vscode/releases)
+3. Download the `rig-manager-0.4.0.vsix` file from the **Assets** section
+4. Open VS Code
+5. Go to Extensions (`Ctrl+Shift+X` / `Cmd+Shift+X`)
+6. Click on the "..." menu (Views and More Actions)
+7. Select "Install from VSIX..."
+8. Choose the downloaded `.vsix` file
+9. Reload VS Code when prompted
 
 ### Recommended Extensions
 
